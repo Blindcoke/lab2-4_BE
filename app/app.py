@@ -2,15 +2,29 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-users = {}
-categories = {}
+users = {
+    1: {"name": "Igor", "email": "igor@example.com"},
+    2: {"name": "Oleg", "email": "oleg@example.com"},
+    3: {"name": "Alan", "email": "alan@example.com"},
+    4: {"name": "Sanya", "email": "sanya@example.com"},
+    5: {"name": "Kir", "email": "kir@example.com"},
+    6: {"name": "Denys", "email": "denys@example.com"},
+}
+categories = {
+     1: {"name": "Girls", "description": "Categories related to girls"},
+     2: {"name": "Games", "description": "Categories related to games"},
+     3: {"name": "Food", "description": "Categories related to food"},
+     4: {"name": "Cars", "description": "Categories related to cars"},
+     5: {"name": "Education", "description": "Categories related to education"},
+     6: {"name": "Travels", "description": "Categories related to travels"},
+}
 expenses = []
 
 
 # Створення користувача
 @app.route('/user', methods=['POST'])
 def create_user():
-    data = request.json
+    data = request.get_json()
     user_id = len(users) + 1
     user = {'id': user_id, 'name': data['name']}
     users[user_id] = user
@@ -90,7 +104,6 @@ def create_expense():
 # Отримання списку записів
 @app.route('/record', methods=['GET'])
 def get_expenses():
-    print(request.args.get('user_id'))
     user_id = request.args.get('user_id')
     category_id = request.args.get('category_id')
     if user_id is None and category_id is None:
