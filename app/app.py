@@ -71,6 +71,36 @@ def get_categories():
     return jsonify(list(categories.values()))
 
 
+# Створення запису про витрати
+@app.route('/record', methods=['POST'])
+def create_expense():
+    data = request.json
+    expense_id = len(expenses) + 1
+    expense = {
+        'id': expense_id,
+        'user_id': data['user_id'],
+        'category_id': data['category_id'],
+        'time': data['time'],
+        'amount': data['amount']
+    }
+    expenses.append(expense)
+    return jsonify(expense), 201
+
+
+# Отримання списку записів
+@app.route('/record', methods=['GET'])
+def get_expenses():
+    print(request.args.get('user_id'))
+    user_id = request.args.get('user_id')
+    category_id = request.args.get('category_id')
+    if user_id is None and category_id is None:
+        return jsonify({'message': 'Вкажіть хоча б один параметр: user_id або category_id'}), 400
+    id_exp = []
+    if user_id:
+        id_exp += [expense for expense in expenses if expense['user_id'] == int(user_id)]
+    if category_id:
+        id_exp += [expense for expense in expenses if expense['category_id'] == int(category_id)]
+    return jsonify(id_exp)
 
 
 if __name__ == '__main__':
