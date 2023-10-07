@@ -42,6 +42,34 @@ def get_users():
     return jsonify(list(users.values()))
 
 
+# Створення категорії витрат
+@app.route('/category', methods=['POST'])
+def create_category():
+    data = request.json
+    category_id = len(categories) + 1
+    category = {
+        'id': category_id,
+        'name': data['name']
+    }
+    categories[category_id] = category
+    return jsonify(category), 201
+
+
+# Видалення категорії витрат за ID
+@app.route('/category/<int:category_id>', methods=['DELETE'])
+def delete_category(category_id):
+    category = categories.get(category_id)
+    if category is None:
+        return jsonify({'message': 'Категорію не знайдено'}), 404
+    del categories[category_id]
+    return jsonify({'message': 'Категорія видалена'}), 200
+
+
+# Отримання списку категорій
+@app.route('/category', methods=['GET'])
+def get_categories():
+    return jsonify(list(categories.values()))
+
 
 
 
