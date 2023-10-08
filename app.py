@@ -117,8 +117,6 @@ def get_expenses():
 
 
 if __name__ == '__main__':
-<<<<<<< HEAD:app.py
-    app.run(host='0.0.0.0', port=8050, debug=True)
-=======
-    app.run(host='0.0.0.0', port=8050)
->>>>>>> 397e1ff3bafcc7e7c865b69f664399f89e154ac6:app/app.py
+
+    app.run(debug=True)
+
