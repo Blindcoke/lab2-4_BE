@@ -1,10 +1,14 @@
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from marshmallow import Schema, fields, ValidationError
-
+from flask_migrate import Migrate
+from datetime import datetime
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///test.db'
+app.config.from_pyfile('config.py', silent=True)
 db = SQLAlchemy(app)
+migrate = Migrate(app, db)
+
 # users = {
 #     1: {"name": "Igor", "email": "igor@example.com"},
 #     2: {"name": "Oleg", "email": "oleg@example.com"},
@@ -35,7 +39,7 @@ class Account(db.Model):
     __tablename__ = 'accounts'
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    balance = db.Column(db.Float, nullable=False, default=0.0)
+    balance = db.Column(db.Float, nullable=False, default=500)
 
 
 class User(db.Model):
@@ -51,7 +55,7 @@ class Expense(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     category_id = db.Column(db.Integer, db.ForeignKey('categories.id'), nullable=False)
-    time = db.Column(db.DateTime, nullable=False)
+    time = db.Column(db.DateTime, nullable=True)
     amount = db.Column(db.Float, nullable=False)
 
 
@@ -81,18 +85,33 @@ class AccountSchema(Schema):
     user_id = fields.Int(required=True)
     balance = fields.Float(required=True)
 
+class Income(db.Model):
+    __tablename__ = 'incomes'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    time = db.Column(db.DateTime, nullable=False, default=datetime.now())
 
+# Schema for Income
+class IncomeSchema(Schema):
+    id = fields.Int()
+    user_id = fields.Int()
+    amount = fields.Float()
+    time = fields.DateTime()
 # Створення користувача
+
 @app.route('/user', methods=['POST'])
 def create_user():
     user_data = request.get_json()
     user_schema = UserSchema()
     try:
-        user = user_schema.load(user_data)
+        # Create a new User model instance and populate it with data from the dictionary
+        user = User(username=user_data['username'], password=user_data['password'], default_currency=user_data['default_currency'])
+        db.session.add(user)
+        db.session.commit()
+        return jsonify(user_schema.dump(user)), 201
     except ValidationError as e:
         return jsonify({'error': 'Некоректні дані', 'messages': e.messages}), 400
-
-    return jsonify(user), 201
 
 
 # Отримання користувача за ID
@@ -195,6 +214,20 @@ def create_expense():
     except Exception as e:
         return jsonify({'error': 'Помилка сервера', 'message': str(e)}), 500
 
+@app.route('/record/<int:expense_id>', methods=['DELETE'])
+def delete_expense(expense_id):
+    try:
+        expense = Expense.query.get(expense_id)
+
+        if not expense:
+            return {'error': 'Витрату не знайдено'}, 404
+
+        db.session.delete(expense)
+        db.session.commit()
+
+        return {'message': 'Запис про витрату видалено'}, 200
+    except Exception as e:
+        return {'error': 'Помилка сервера', 'message': str(e)}, 500
 
 # Отримання списку записів
 @app.route('/record', methods=['GET'])
@@ -219,13 +252,13 @@ def get_expenses():
 
 
 # Ендпоінт для додавання доходу
-@app.route('/income', methods=['POST'])
-def add_income():
+@app.route('/expenses', methods=['POST'])
+def add_expense():
     try:
         data = request.json
-        user_data = UserSchema().load(data)
-        user_id = user_data['id']
+        user_id = data.get('user_id')
         amount = data.get('amount')
+
         user = User.query.get(user_id)
 
         if not user:
@@ -237,18 +270,91 @@ def add_income():
             account = Account(user_id=user_id, balance=amount)
             db.session.add(account)
         else:
-            account.balance += amount
+            if amount <= account.balance:
+                account.balance -= amount
+                expense = Expense(user_id=user_id, category_id=0, time=datetime.now(), amount=amount)
+                db.session.add(expense)
+                db.session.commit()
+                return jsonify({'message': 'Витрату додано', 'user_id': user_id, 'amount': amount}), 201
+            else: return jsonify({'message': 'Не вистачає коштів', 'user_id': user_id, 'amount': amount})
 
-        db.session.commit()
-
-        account_data = AccountSchema().dump(account)
-
-        return jsonify({'message': 'Дохід додано', 'user_id': user_id, 'amount': amount, 'account': account_data}), 201
     except ValidationError as ve:
         return jsonify({'error': 'Помилка валідації', 'message': ve.messages}), 400
     except Exception as e:
         return jsonify({'error': 'Помилка сервера', 'message': str(e)}), 500
+@app.route('/income', methods=['POST'])
+def add_income():
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        amount = data.get('amount')
 
+        user = User.query.get(user_id)
+
+        if not user:
+            return jsonify({'error': 'Користувача не знайдено'}), 404
+
+        income = Income(user_id=user_id, amount=amount)
+
+        user_account = Account.query.filter_by(user_id=user_id).first()
+
+        if not user_account:
+            user_account = Account(user_id=user_id, balance=amount)
+            db.session.add(user_account)
+        else:
+            user_account.balance += amount
+
+        db.session.add(income)
+        db.session.commit()
+
+        income_data = IncomeSchema().dump(income)
+
+        return jsonify({'message': 'Дохід додано', 'income': income_data}), 201
+    except ValidationError as ve:
+        return jsonify({'error': 'Помилка валідації', 'message': ve.messages}), 400
+    except Exception as e:
+        return jsonify({'error': 'Помилка серверу', 'message': str(e)}), 500
+
+
+@app.route('/income/<int:income_id>', methods=['DELETE'])
+def delete_income(income_id):
+    try:
+        income = Income.query.get(income_id)
+        if not income:
+            return jsonify({'message': 'Дохід не знайдено'}), 404
+
+        db.session.delete(income)
+        db.session.commit()
+
+        return jsonify({'message': 'Запис про дохід видалено'}), 200
+    except Exception as e:
+        return jsonify({'error': 'Помилка серверу', 'message': str(e)}), 500
+@app.route('/incomes/<int:user_id>', methods=['GET'])
+def get_incomes(user_id):
+    try:
+        incomes = Income.query.filter_by(user_id=user_id).all()
+        income_data = IncomeSchema(many=True).dump(incomes)
+        return jsonify(income_data)
+    except Exception as e:
+        return jsonify({'error': 'Помилка серверу', 'message': str(e)}), 500
+@app.route('/balance/<int:user_id>', methods=['GET'])
+def get_user_balance(user_id):
+    try:
+        user = User.query.get(user_id)
+
+        if not user:
+            return {'error': 'Користувача не знайдено'}, 404
+
+        account = Account.query.filter_by(user_id=user_id).first()
+
+        if not account:
+            return {'error': 'Аккаунт не знайдено'}, 404
+
+        account_data = AccountSchema().dump(account)
+
+        return {'user_id': user_id, 'balance': account_data['balance']}
+    except Exception as e:
+        return {'error': 'Помилка серверу', 'message': str(e)}, 500
 
 if __name__ == '__main__':
     db.create_all()
