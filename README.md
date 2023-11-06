@@ -6,7 +6,7 @@
 1. Клонуйте репозиторій:
 
    ```bash
-   git clone https://github.com/Blindcoke/lab1_BE
+   git clone https://github.com/Blindcoke/lab2_BE
    
 2. Перейдіть до папки проекту:
     ```bash
