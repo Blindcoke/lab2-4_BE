@@ -14,4 +14,4 @@ RUN python -m pip install -r requirements.txt
 COPY . .
 
 # Set the Flask application entry point
-CMD ["flask", "run", "--host=0.0.0.0", "--port=8080"]
+CMD ["flask", "run", "--host=0.0.0.0", "--port=8081"]
