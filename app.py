@@ -202,17 +202,6 @@ def delete_category(category_id):
 
 
 # Створення запису про витрати
-@app.route('/record', methods=['POST'])
-def create_expense():
-    try:
-        data = ExpenseSchema().load(request.json)
-        expense = Expense(**data)
-        db.session.add(expense)
-        db.session.commit()
-        result = ExpenseSchema().dump(expense)
-        return jsonify(result), 201
-    except Exception as e:
-        return jsonify({'error': 'Помилка сервера', 'message': str(e)}), 500
 
 @app.route('/record/<int:expense_id>', methods=['DELETE'])
 def delete_expense(expense_id):
@@ -358,4 +347,4 @@ def get_user_balance(user_id):
 
 if __name__ == '__main__':
     db.create_all()
-    app.run(debug=True, port=10000, host='0.0.0.0')
+    app.run(debug=True, port=8081, host='0.0.0.0')
