@@ -2,7 +2,7 @@ version: '3'
 
 services:
  db:
-    container_name: my_lab4_container 
+    container_name: my_lab4_container
     image: postgres:latest
     environment:
       POSTGRES_USER: testuser
