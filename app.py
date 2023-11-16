@@ -3,12 +3,15 @@ from flask_sqlalchemy import SQLAlchemy
 from marshmallow import Schema, fields, ValidationError
 from flask_migrate import Migrate
 from datetime import datetime
+from flask_jwt_extended import JWTManager
+import os
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///test.db'
 app.config.from_pyfile('config.py', silent=True)
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
-
+app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY")
+jwt = JWTManager(app)
 # users = {
 #     1: {"name": "Igor", "email": "igor@example.com"},
 #     2: {"name": "Oleg", "email": "oleg@example.com"},
