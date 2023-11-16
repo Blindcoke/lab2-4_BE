@@ -4,3 +4,12 @@
 *.pyc
 
 *.xml
+# Flask stuff
+instance/
+.webassets-cache
+
+# SQLite database file
+*.db
+
+# Environment variables file
+.env

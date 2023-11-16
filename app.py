@@ -3,8 +3,11 @@ from flask_sqlalchemy import SQLAlchemy
 from marshmallow import Schema, fields, ValidationError
 from flask_migrate import Migrate
 from datetime import datetime
-from flask_jwt_extended import JWTManager
+from flask_jwt_extended import JWTManager, jwt_required
 import os
+from flask_jwt_extended import create_access_token
+from passlib.hash import pbkdf2_sha256
+
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///test.db'
 app.config.from_pyfile('config.py', silent=True)
@@ -12,22 +15,35 @@ db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY")
 jwt = JWTManager(app)
-# users = {
-#     1: {"name": "Igor", "email": "igor@example.com"},
-#     2: {"name": "Oleg", "email": "oleg@example.com"},
-#     3: {"name": "Alan", "email": "alan@example.com"},
-#     4: {"name": "Sanya", "email": "sanya@example.com"},
-#     5: {"name": "Kir", "email": "kir@example.com"},
-#     6: {"name": "Denys", "email": "denys@example.com"},
-# }
-# categories = {
-#      1: {"name": "Girls", "description": "Categories related to girls"},
-#      2: {"name": "Games", "description": "Categories related to games"},
-#      3: {"name": "Food", "description": "Categories related to food"},
-#      4: {"name": "Cars", "description": "Categories related to cars"},
-#      5: {"name": "Education", "description": "Categories related to education"},
-#      6: {"name": "Travels", "description": "Categories related to travels"},
-# }
+
+
+# Обробник помилки для прострочених токенів
+@jwt.expired_token_loader
+def expired_token_callback(jwt_header, jwt_payload):
+    return jsonify({"message": "The token has expired.", "error": "token_expired"}), 401
+
+
+# Обробник помилки для недійсних токенів
+@jwt.invalid_token_loader
+def invalid_token_callback(error):
+    return (
+        jsonify({"message": "Signature verification failed.", "error": "invalid_token"}),
+        401,
+    )
+
+
+# Обробник помилки для немає токена
+@jwt.unauthorized_loader
+def missing_token_callback(error):
+    return (
+        jsonify({
+            "description": "Request does not contain an access token.",
+            "error": "authorization_required",
+        }),
+        401,
+    )
+
+
 expenses = []
 
 
@@ -49,8 +65,8 @@ class User(db.Model):
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(20), unique=True, nullable=False)
-    password = db.Column(db.String(30), nullable=False)
     default_currency = db.Column(db.String(3), nullable=False, default='USD')
+    password = db.Column(db.String(128), nullable=False)
 
 
 class Expense(db.Model):
@@ -88,6 +104,7 @@ class AccountSchema(Schema):
     user_id = fields.Int(required=True)
     balance = fields.Float(required=True)
 
+
 class Income(db.Model):
     __tablename__ = 'incomes'
     id = db.Column(db.Integer, primary_key=True)
@@ -95,44 +112,57 @@ class Income(db.Model):
     amount = db.Column(db.Float, nullable=False)
     time = db.Column(db.DateTime, nullable=False, default=datetime.now())
 
+
 # Schema for Income
 class IncomeSchema(Schema):
     id = fields.Int()
     user_id = fields.Int()
     amount = fields.Float()
     time = fields.DateTime()
+
+
 # Створення користувача
 
-@app.route('/user', methods=['POST'])
-def create_user():
+
+@app.route('/register', methods=['POST'])
+def register_user():
     user_data = request.get_json()
     user_schema = UserSchema()
+
     try:
-        # Create a new User model instance and populate it with data from the dictionary
-        user = User(username=user_data['username'], password=user_data['password'], default_currency=user_data['default_currency'])
+        hashed_password = pbkdf2_sha256.hash(user_data['password'])
+        user = User(username=user_data['username'], password=hashed_password,
+                    default_currency=user_data['default_currency'])
         db.session.add(user)
         db.session.commit()
+
         return jsonify(user_schema.dump(user)), 201
     except ValidationError as e:
         return jsonify({'error': 'Некоректні дані', 'messages': e.messages}), 400
 
 
-# Отримання користувача за ID
-@app.route('/user/<int:user_id>', methods=['GET'])
-def get_user(user_id):
-    try:
-        user = User.query.get(user_id)
-        if not user:
-            return jsonify({'message': 'Користувача не знайдено'}), 404
+# Ендпоінт для логіну
+@app.route('/login', methods=['POST'])
+def login_user():
+    user_data = request.get_json()
+    user_schema = UserSchema()
 
-        user_data = UserSchema().dump(user)
-        return jsonify(user_data)
-    except Exception as e:
-        return jsonify({'error': 'Помилка сервера', 'message': str(e)}), 500
+    try:
+        user = User.query.filter_by(username=user_data['username']).first()
+
+        if user and pbkdf2_sha256.verify(user_data['password'], user.password):
+            access_token = create_access_token(identity=user.id)
+            return jsonify(access_token=access_token), 200
+        else:
+            return jsonify({'error': 'Неправильне ім\'я користувача або пароль'}), 401
+
+    except ValidationError as e:
+        return jsonify({'error': 'Некоректні дані', 'messages': e.messages}), 400
 
 
 # Видалити користувача за ID
 @app.route('/user/<int:user_id>', methods=['DELETE'])
+@jwt_required()
 def delete_user(user_id):
     try:
         user = User.query.get(user_id)
@@ -149,6 +179,7 @@ def delete_user(user_id):
 
 # Отримати всіх користувачів
 @app.route('/users', methods=['GET'])
+@jwt_required()
 def get_users():
     try:
         users = User.query.all()
@@ -160,6 +191,7 @@ def get_users():
 
 # Створення категорії витрат
 @app.route('/category', methods=['POST'])
+@jwt_required()
 def create_category():
     try:
         data = CategorySchema().load(request.json)
@@ -174,6 +206,7 @@ def create_category():
 
 # Отримання списку категорій
 @app.route('/category', methods=['GET'])
+@jwt_required()
 def get_categories():
     try:
         categories = Category.query.all()
@@ -185,6 +218,7 @@ def get_categories():
 
 # Видалення категорії витрат за ID
 @app.route('/category/<int:category_id>', methods=['DELETE'])
+@jwt_required()
 def delete_category(category_id):
     try:
         category = Category.query.get(category_id)
@@ -207,6 +241,7 @@ def delete_category(category_id):
 # Створення запису про витрати
 
 @app.route('/record/<int:expense_id>', methods=['DELETE'])
+@jwt_required()
 def delete_expense(expense_id):
     try:
         expense = Expense.query.get(expense_id)
@@ -221,8 +256,10 @@ def delete_expense(expense_id):
     except Exception as e:
         return {'error': 'Помилка сервера', 'message': str(e)}, 500
 
+
 # Отримання списку записів
 @app.route('/record', methods=['GET'])
+@jwt_required()
 def get_expenses():
     try:
         user_id = request.args.get('user_id')
@@ -245,6 +282,7 @@ def get_expenses():
 
 # Ендпоінт для додавання доходу
 @app.route('/expenses', methods=['POST'])
+@jwt_required()
 def add_expense():
     try:
         data = request.json
@@ -268,13 +306,17 @@ def add_expense():
                 db.session.add(expense)
                 db.session.commit()
                 return jsonify({'message': 'Витрату додано', 'user_id': user_id, 'amount': amount}), 201
-            else: return jsonify({'message': 'Не вистачає коштів', 'user_id': user_id, 'amount': amount})
+            else:
+                return jsonify({'message': 'Не вистачає коштів', 'user_id': user_id, 'amount': amount})
 
     except ValidationError as ve:
         return jsonify({'error': 'Помилка валідації', 'message': ve.messages}), 400
     except Exception as e:
         return jsonify({'error': 'Помилка сервера', 'message': str(e)}), 500
+
+
 @app.route('/income', methods=['POST'])
+@jwt_required()
 def add_income():
     try:
         data = request.json
@@ -309,6 +351,7 @@ def add_income():
 
 
 @app.route('/income/<int:income_id>', methods=['DELETE'])
+@jwt_required()
 def delete_income(income_id):
     try:
         income = Income.query.get(income_id)
@@ -321,7 +364,10 @@ def delete_income(income_id):
         return jsonify({'message': 'Запис про дохід видалено'}), 200
     except Exception as e:
         return jsonify({'error': 'Помилка серверу', 'message': str(e)}), 500
+
+
 @app.route('/incomes/<int:user_id>', methods=['GET'])
+@jwt_required()
 def get_incomes(user_id):
     try:
         incomes = Income.query.filter_by(user_id=user_id).all()
@@ -329,7 +375,10 @@ def get_incomes(user_id):
         return jsonify(income_data)
     except Exception as e:
         return jsonify({'error': 'Помилка серверу', 'message': str(e)}), 500
+
+
 @app.route('/balance/<int:user_id>', methods=['GET'])
+@jwt_required()
 def get_user_balance(user_id):
     try:
         user = User.query.get(user_id)
@@ -348,6 +397,7 @@ def get_user_balance(user_id):
     except Exception as e:
         return {'error': 'Помилка серверу', 'message': str(e)}, 500
 
+
 if __name__ == '__main__':
     db.create_all()
-    app.run(debug=True, port=8081, host='0.0.0.0')
+    app.run(debug=True, port=8082, host='0.0.0.0')
